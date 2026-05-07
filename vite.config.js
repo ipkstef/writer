@@ -1,13 +1,15 @@
-import { string } from 'rollup-plugin-string'
+const { string } = require('rollup-plugin-string')
 
 /**
  * @type {import('vite').UserConfig}
  */
-export default {
+module.exports = {
   plugins: [
     string({
       include: '**/*.txt',
     }),
   ],
-  'optimizeDeps.include': ['valtio/vanilla'],
+  optimizeDeps: {
+    include: ['valtio/vanilla'],
+  },
 }

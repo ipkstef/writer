@@ -6,7 +6,16 @@ import * as measure from './measure'
 import * as state from './state'
 import * as drawing from './drawing'
 import * as utils from './utils'
-const file = `Hey, welcome to writer.\n`
+const date = new Date();
+
+const formatter = new Intl.DateTimeFormat('en-US', {
+  weekday: 'long',
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric'
+});
+
+const file = formatter.format(date);
 
 // Events
 
