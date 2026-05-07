@@ -23,6 +23,7 @@ export function draw(force) {
   drawCursors()
   drawTextarea()
   drawScrollbar()
+  drawStatusbar()
 }
 
 export function drawScrollbar() {
@@ -65,6 +66,18 @@ export function drawCursors() {
   state.editor.cursors.map((c) => {
     drawCursor(c, visibleCursors.get(c.id))
   })
+
+  drawStatusbar()
+}
+
+export function drawStatusbar() {
+  const { cursorInfo } = state.elements
+  const cursor = state.editor.cursors[0]
+  if (!cursorInfo || !cursor) return
+
+  const line = cursor.position.line + 1
+  const column = cursor.position.column + 1
+  cursorInfo.innerText = `Ln ${line}, Col ${column}`
 }
 
 function drawCursor(cursor, el) {
@@ -177,6 +190,23 @@ export function scrollbar() {
   scrollbar.appendChild(thumb)
 
   return [scrollbar, thumb]
+}
+
+export function statusbar() {
+  const statusbar = document.createElement('footer')
+  statusbar.setAttribute('writer-statusbar', '')
+
+  const cursorItem = document.createElement('span')
+  cursorItem.setAttribute('writer-cursor-item', '')
+
+  const cursorInfo = document.createElement('code')
+  cursorInfo.setAttribute('writer-cursor-info', '')
+  cursorInfo.innerText = 'Ln 1, Col 1'
+
+  cursorItem.appendChild(cursorInfo)
+  statusbar.appendChild(cursorItem)
+
+  return [statusbar, cursorInfo]
 }
 
 export function wrapper() {

@@ -24,6 +24,8 @@ export const elements = {
   textarea: null,
   scrollbar: null,
   scrollbarThumb: null,
+  statusbar: null,
+  cursorInfo: null,
   dumpButton: null,
 }
 

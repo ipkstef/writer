@@ -335,6 +335,9 @@ async function init(rootElement) {
   const [scrollbar, thumb] = drawing.scrollbar()
   elements.scrollbar = scrollbar
   elements.scrollbarThumb = thumb
+  const [statusbar, cursorInfo] = drawing.statusbar()
+  elements.statusbar = statusbar
+  elements.cursorInfo = cursorInfo
 
   // Append
   elements.wrapper.appendChild(elements.textarea)
@@ -345,6 +348,7 @@ async function init(rootElement) {
 
   // Write to DOM
   rootElement.appendChild(elements.editor)
+  document.body.appendChild(elements.statusbar)
 
   // /Event Listeners
   window.addEventListener('resize', drawing.resize)
