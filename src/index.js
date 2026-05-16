@@ -1,408 +1,209 @@
-import keys from 'tinykeys'
-import Buffer from './buffer'
-import Cursor from './cursor'
-import { Point } from './position'
-import * as measure from './measure'
-import * as state from './state'
-import * as drawing from './drawing'
-import * as utils from './utils'
-const date = new Date();
+const STORAGE_KEY = 'writer:draft:v1'
+const AUTOSAVE_DELAY = 250
 
-const formatter = new Intl.DateTimeFormat('en-US', {
-  weekday: 'long',
-  year: 'numeric',
+const today = new Date()
+const defaultTitle = new Intl.DateTimeFormat('en-US', {
   month: 'long',
-  day: 'numeric'
-});
+  day: 'numeric',
+  year: 'numeric',
+}).format(today)
 
-const file = formatter.format(date);
+let autosaveTimer
+let savedAt = null
 
-// Events
+const root = document.querySelector('main')
 
-function paste(e) {
-  e.preventDefault()
-  const content = e.clipboardData.getData('text/plain')
-  utils.insertText(content)
-  drawing.scrollMainCursorIntoView()
-  drawing.draw()
-}
+root.innerHTML = `
+  <section class="writer-app" aria-label="Writer">
+    <header class="writer-topbar">
+      <input class="writer-title" type="text" aria-label="Document title" spellcheck="false" />
+      <div class="writer-actions" aria-label="Document actions">
+        <button class="writer-button" type="button" data-action="new">New</button>
+        <button class="writer-button" type="button" data-action="open">Open</button>
+        <button class="writer-button writer-button-primary" type="button" data-action="export">Export .md</button>
+      </div>
+      <input class="writer-file" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" />
+    </header>
+    <div class="writer-editor-shell">
+      <textarea class="writer-editor" aria-label="Markdown editor" spellcheck="true"></textarea>
+    </div>
+    <footer class="writer-status" aria-live="polite">
+      <span data-stat="words">0 words</span>
+      <span data-stat="chars">0 chars</span>
+      <span data-stat="cursor">Ln 1, Col 1</span>
+      <span data-stat="save">Saved locally</span>
+    </footer>
+  </section>
+`
 
-function input(e) {
-  const content = e.target.value
-  e.target.value = ''
-  utils.insertText(content)
-  drawing.scrollMainCursorIntoView()
-  drawing.draw()
-}
+const titleInput = root.querySelector('.writer-title')
+const editor = root.querySelector('.writer-editor')
+const fileInput = root.querySelector('.writer-file')
+const actionNew = root.querySelector('[data-action="new"]')
+const actionOpen = root.querySelector('[data-action="open"]')
+const actionExport = root.querySelector('[data-action="export"]')
+const wordStat = root.querySelector('[data-stat="words"]')
+const charStat = root.querySelector('[data-stat="chars"]')
+const cursorStat = root.querySelector('[data-stat="cursor"]')
+const saveStat = root.querySelector('[data-stat="save"]')
 
-function keyDown(e) {
-  let handled = true
-
-  switch (e.key) {
-    case 'Enter': {
-      utils.newline()
-      break
-    }
-    case 'Backspace': {
-      if (e.metaKey) {
-        utils.deleteToStartOfLine()
-      } else if (e.altKey) {
-        utils.deleteToStartOfWord()
-      } else {
-        utils.backspace()
-      }
-      break
-    }
-    case 'ArrowUp': {
-      if (e.metaKey) {
-        utils.moveToTop(e.shiftKey)
-      } else if (e.altKey && !e.shiftKey) {
-        utils.swapLine(-1)
-      } else {
-        utils.moveUp(1, e.shiftKey)
-      }
-      break
-    }
-    case 'ArrowDown': {
-      if (e.metaKey) {
-        utils.moveToBottom(e.shiftKey)
-      } else if (e.altKey && !e.shiftKey) {
-        utils.swapLine(1)
-      } else {
-        utils.moveDown(1, e.shiftKey)
-      }
-      break
-    }
-    case 'ArrowRight': {
-      if (e.metaKey) {
-        utils.moveToEndOfLine(e.shiftKey)
-      } else if (e.altKey) {
-        utils.moveToEndOfWord(e.shiftKey)
-      } else {
-        utils.moveRight(1, e.shiftKey)
-      }
-      break
-    }
-    case 'ArrowLeft': {
-      if (e.metaKey) {
-        utils.moveToStartOfLine(e.shiftKey)
-      } else if (e.altKey) {
-        utils.moveToStartOfWord(e.shiftKey)
-      } else {
-        utils.moveLeft(1, e.shiftKey)
-      }
-      break
-    }
-    case 'a': {
-      if (e.metaKey) {
-        utils.selectAll()
-      } else {
-        handled = false
-      }
-      break
-    }
-    case 'c': {
-      if (e.metaKey) {
-        utils.copy()
-      } else {
-        handled = false
-      }
-      break
-    }
-    // Paste is handled by textarea
-    // case 'v': {}
-    case 'x': {
-      if (e.metaKey) {
-        utils.cut()
-      } else {
-        handled = false
-      }
-      break
-    }
-    default: {
-      handled = false
-    }
-  }
-
-  if (handled) {
-    e.preventDefault()
-    drawing.scrollMainCursorIntoView()
-    drawing.draw()
+function getDraft() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
   }
 }
 
-function scrollbarMove(e) {
-  const maxScroll = utils.getMaxScroll()
-  const trackLength = utils.getScrollbarTrackLength()
-  const thumbLength = utils.getScrollbarThumbLength()
-  const ratio = maxScroll / (trackLength - thumbLength)
-  const deltaY = e.pageY - state.editor.scrollbarContext.initialY
-
-  const newScroll = utils.getScroll() + ratio * deltaY
-  state.editor.scrollbarContext.initialY = e.pageY
-  utils.setScroll(newScroll)
-  drawing.draw()
+function setDraft({ title, content }) {
+  savedAt = new Date()
+  window.localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      title,
+      content,
+      savedAt: savedAt.toISOString(),
+    })
+  )
 }
 
-function scrollbarUp() {
-  window.removeEventListener('mousemove', scrollbarMove)
-  window.removeEventListener('mouseup', this)
-  state.editor.scrollbarContext = {}
-  drawing.hideScrollbar()
+function loadDraft() {
+  const draft = getDraft()
+  titleInput.value = draft?.title || defaultTitle
+  editor.value = draft?.content || ''
+  savedAt = draft?.savedAt ? new Date(draft.savedAt) : null
 }
 
-function scrollbarDown(e) {
-  e.preventDefault()
-  state.editor.scrollbarContext.initialY = e.pageY
-  state.elements.scrollbarThumb.style.opacity = '1'
-  window.addEventListener('mousemove', scrollbarMove)
-  window.addEventListener('mouseup', scrollbarUp)
+function scheduleSave() {
+  clearTimeout(autosaveTimer)
+  saveStat.textContent = 'Saving...'
+  autosaveTimer = setTimeout(() => {
+    setDraft({ title: titleInput.value, content: editor.value })
+    updateStats()
+  }, AUTOSAVE_DELAY)
 }
 
-function scrollbarEnter() {
-  if (state.elements.scrollbarThumb.style.opacity !== '0') {
-    drawing.showScrollbar()
-  }
+function updateStats() {
+  const text = editor.value
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0
+  const chars = text.length
+  const position = editor.selectionStart
+  const beforeCursor = text.slice(0, position)
+  const lines = beforeCursor.split('\n')
+  const line = lines.length
+  const column = lines[lines.length - 1].length + 1
+
+  wordStat.textContent = `${words} ${words === 1 ? 'word' : 'words'}`
+  charStat.textContent = `${chars} ${chars === 1 ? 'char' : 'chars'}`
+  cursorStat.textContent = `Ln ${line}, Col ${column}`
+  saveStat.textContent = savedAt ? `Saved ${formatTime(savedAt)}` : 'Saved locally'
 }
 
-function scrollbarLeave() {
-  if (!state.editor.scrollbarContext.initialY) {
-    drawing.hideScrollbar()
-  }
+function formatTime(date) {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)
 }
 
-function selectionMove(e) {
-  const { cursors, moveContext, buffer } = state.editor
-  let { pageX: x, pageY: y } = e
-  const line = utils.yToLine(y)
-  const screenPoint =
-    line > utils.getLastScreenLineNumber()
-      ? utils.getLastScreenLineLastColumn()
-      : new Point(line, utils.xToColumn(x, line))
+function slugify(value) {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/['"]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'note'
+  )
+}
 
-  const [bl, bc] = buffer.screenToBuffer(screenPoint.line, screenPoint.column)
-  const point = new Point(bl, bc)
+function downloadMarkdown() {
+  const filename = `${slugify(titleInput.value || defaultTitle)}.md`
+  const blob = new Blob([editor.value], {
+    type: 'text/markdown;charset=utf-8',
+  })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
 
-  const cursor = cursors[0]
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
 
-  if (!cursor.selection.focus.equals(point)) {
-    if (moveContext?.detail === 2) {
-      // Double click + drag
-      cursor.selection.focus = point
-
-      if (cursor.selection.direction === 'backward') {
-        if (!moveContext?.reversed) {
-          cursor.moveToEndOfWord()
-          moveContext.reversed = true
-        }
-        cursor.moveToStartOfWord(true)
-      } else {
-        cursor.moveToEndOfWord(true)
-      }
-    } else if (moveContext.detail === 3) {
-      // Triple click + drag
-      cursor.selection.focus = point
-      if (cursor.selection.direction === 'backward') {
-        if (!moveContext?.reversed) {
-          cursor.moveToEndOfParagraph()
-          moveContext.reversed = true
-        }
-        cursor.moveToStartOfParagraph(true)
-      } else {
-        cursor.moveToEndOfParagraph(true)
-      }
-    } else {
-      cursor.moveTo(point.line, point.column, true)
-    }
+function newDraft() {
+  if (editor.value.trim() && !window.confirm('Start a new blank note?')) {
+    return
   }
 
-  drawing.scrollMainCursorIntoView()
-  drawing.drawCursors()
+  titleInput.value = defaultTitle
+  editor.value = ''
+  setDraft({ title: titleInput.value, content: editor.value })
+  updateStats()
+  editor.focus()
 }
 
-function selectionUp() {
-  window.removeEventListener('mousemove', selectionMove)
-  window.removeEventListener('mouseup', this)
-  state.editor.moveContext = {}
-}
-
-function selectionDown(e) {
-  const { cursors, moveContext, buffer } = state.editor
-  let { pageX: x, pageY: y } = e
-  const line = utils.yToLine(y)
-  const screenPoint =
-    line > utils.getLastScreenLineNumber()
-      ? utils.getLastScreenLineLastColumn()
-      : new Point(line, utils.xToColumn(x, line))
-
-  const [bl, bc] = buffer.screenToBuffer(screenPoint.line, screenPoint.column)
-  const point = new Point(bl, bc)
-
-  if (e.altKey) {
-    // Add a new cursor at the spot
-    const cursor = new Cursor()
-    cursor.moveToPoint(point)
-    cursors.push(cursor)
-  } else {
-    // When regular mousedown happens, flatten cursor to one
-    utils.flattenToOneCursor()
-
-    if (e.shiftKey) {
-      // Expand selection
-      cursors[0].moveToPoint(point, true)
-    } else {
-      cursors[0].moveToPoint(point)
-    }
-
-    moveContext.detail = e.detail
-
-    if (e.detail === 2) {
-      // Double click
-      cursors[0].selectWord()
-    } else if (e.detail === 3) {
-      // Triple click
-      cursors[0].selectParagraph()
-    }
-  }
-  window.addEventListener('mousemove', selectionMove)
-  window.addEventListener('mouseup', selectionUp)
-  drawing.scrollMainCursorIntoView()
-  drawing.draw()
-}
-
-function dragEnter(e) {
-  e.stopPropagation()
-  e.preventDefault()
-  document.body.style.border = '2px solid red'
-}
-
-function dragOver(e) {
-  e.stopPropagation()
-  e.preventDefault()
-}
-
-function dragLeave(e) {
-  e.stopPropagation()
-  e.preventDefault()
-  document.body.style.border = null
-}
-
-async function drop(e) {
-  e.stopPropagation()
-  e.preventDefault()
-  document.body.style.border = null
-
-  const dt = e.dataTransfer
-  const files = dt.files
-
-  const file = files[0]
+async function openFile(file) {
   if (!file) return
 
-  console.time('FULL load file')
+  const text = await file.text()
+  const name = file.name.replace(/\.(md|markdown|txt)$/i, '')
 
-  console.time('Resetting editor')
-  drawing.reset()
-  state.editor.cursors = [new Cursor()]
-  console.timeEnd('Resetting editor')
-
-  console.time('Load file into Buffer')
-  const buffer = await Buffer.loadBrowserFile(file, measure.getLineBreak)
-  console.timeEnd('Load file into Buffer')
-
-  console.time('Wrap all line buffers (sync)')
-  buffer.wrapAllLineBuffersSync()
-  console.timeEnd('Wrap all line buffers (sync)')
-
-  drawing.drawScrollbar()
-
-  state.editor.buffer = buffer
-
-  console.time('First draw')
-  drawing.draw()
-  console.timeEnd('First draw')
-  console.timeEnd('FULL load file')
+  titleInput.value = name || defaultTitle
+  editor.value = text
+  setDraft({ title: titleInput.value, content: editor.value })
+  updateStats()
+  editor.focus()
 }
 
-async function init(rootElement) {
-  const { elements, editor } = state
-
-  // Create elements
-  elements.editor = drawing.editor()
-  elements.textarea = drawing.textarea()
-  elements.lines = drawing.lines()
-  elements.decorations = drawing.decorations()
-  elements.wrapper = drawing.wrapper()
-  const [scrollbar, thumb] = drawing.scrollbar()
-  elements.scrollbar = scrollbar
-  elements.scrollbarThumb = thumb
-  const [statusbar, cursorInfo] = drawing.statusbar()
-  elements.statusbar = statusbar
-  elements.cursorInfo = cursorInfo
-
-  // Append
-  elements.wrapper.appendChild(elements.textarea)
-  elements.wrapper.appendChild(elements.decorations)
-  elements.wrapper.appendChild(elements.lines)
-  elements.editor.appendChild(elements.wrapper)
-  elements.editor.appendChild(elements.scrollbar)
-
-  // Write to DOM
-  rootElement.appendChild(elements.editor)
-  document.body.appendChild(elements.statusbar)
-
-  // /Event Listeners
-  window.addEventListener('resize', drawing.resize)
-  document.body.addEventListener('dragenter', dragEnter)
-  document.body.addEventListener('dragover', dragOver)
-  document.body.addEventListener('dragleave', dragLeave)
-  document.body.addEventListener('drop', drop)
-  elements.editor.addEventListener('mousedown', () =>
-    setTimeout(() => elements.textarea.focus(), 1)
-  )
-  elements.editor.addEventListener('wheel', drawing.wheel)
-  elements.lines.addEventListener('mousedown', selectionDown)
-  elements.textarea.addEventListener('input', input)
-  elements.textarea.addEventListener('paste', paste)
-  elements.textarea.addEventListener('keydown', keyDown)
-  elements.scrollbarThumb.addEventListener('mousedown', scrollbarDown)
-  elements.scrollbar.addEventListener('mouseenter', scrollbarEnter)
-  elements.scrollbar.addEventListener('mouseleave', scrollbarLeave)
-
-  // State
-  const buffer = new Buffer(measure.getLineBreak)
-  console.time('Load text into buffer')
-  buffer.loadText(file)
-  console.timeEnd('Load text into buffer')
-
-  console.time('Wrap all line buffers (sync)')
-  buffer.wrapAllLineBuffersSync()
-  console.timeEnd('Wrap all line buffers (sync)')
-
-  editor.buffer = buffer
-  editor.cursors = [new Cursor()]
-
-  elements.lines.style.height =
-    buffer.screenLength * state.settings.text.lineHeight + 'px'
-
-  console.time('Draw first screen')
-  drawing.resize()
-  console.timeEnd('Draw first screen')
-
-  // test()
-
-  keys(window, {
-    '$mod+z': utils.preventDefault(() => editor.buffer.undo()),
-    '$mod+Shift+z': utils.preventDefault(() => editor.buffer.redo()),
-    '$mod+d': utils.preventDefault(dump),
-    '$mod+s': utils.preventDefault(),
-    '$mod+p': utils.preventDefault(() => drawing.draw()),
-  })
+function handleDrop(event) {
+  event.preventDefault()
+  document.body.classList.remove('is-dragging')
+  openFile(event.dataTransfer.files[0])
 }
 
-// Init
-init(document.querySelector('main'))
+titleInput.addEventListener('input', scheduleSave)
+editor.addEventListener('input', () => {
+  updateStats()
+  scheduleSave()
+})
+editor.addEventListener('click', updateStats)
+editor.addEventListener('keyup', updateStats)
+editor.addEventListener('select', updateStats)
 
-function dump() {
-  console.log(state.editor)
-  console.log(measure.measureCache)
-}
+actionNew.addEventListener('click', newDraft)
+actionOpen.addEventListener('click', () => fileInput.click())
+actionExport.addEventListener('click', downloadMarkdown)
+fileInput.addEventListener('change', () => openFile(fileInput.files[0]))
+
+document.addEventListener('keydown', (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+    event.preventDefault()
+    setDraft({ title: titleInput.value, content: editor.value })
+    updateStats()
+  }
+
+  if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'e') {
+    event.preventDefault()
+    downloadMarkdown()
+  }
+})
+
+document.addEventListener('dragenter', (event) => {
+  event.preventDefault()
+  document.body.classList.add('is-dragging')
+})
+document.addEventListener('dragover', (event) => event.preventDefault())
+document.addEventListener('dragleave', (event) => {
+  if (event.target === document.documentElement || event.target === document.body) {
+    document.body.classList.remove('is-dragging')
+  }
+})
+document.addEventListener('drop', handleDrop)
+
+loadDraft()
+updateStats()
+editor.focus()
