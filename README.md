@@ -4,6 +4,8 @@ A focused Markdown writing app for quick notes and longer drafts.
 
 Hosted at [writer.stefanosamanuel.me](https://writer.stefanosamanuel.me).
 
+![Writer app preview](public/readme-preview.png)
+
 ## Features
 
 - Native textarea editing with browser selection, scrolling, paste, and mobile behavior
