@@ -1,6 +1,8 @@
 # writer
 
-A small Markdown-friendly writing app for quick notes and longer drafts.
+A focused Markdown writing app for quick notes and longer drafts.
+
+Hosted at [writer.stefanosamanuel.me](https://writer.stefanosamanuel.me).
 
 ## Features
 
@@ -20,6 +22,14 @@ npm run dev
 ## Production
 
 ```sh
+cp .env.example .env
 npm run build
 docker-compose up -d --build
 ```
+
+Set `WRITER_HOST` in `.env` to the hostname that Traefik should route.
+
+## Notes
+
+This fork has been substantially rewritten from the original custom-rendered editor into a smaller Markdown drafting app.
+The original project did not include a license file in this repository history; add or confirm licensing before publishing as a reusable open source project.

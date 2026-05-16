@@ -1,4 +1,9 @@
 {
+  "name": "writer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A focused Markdown writing app for notes and drafts.",
+  "homepage": "https://writer.stefanosamanuel.me",
   "scripts": {
     "dev": "vite --port 3030",
     "build": "vite build"

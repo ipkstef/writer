@@ -3,15 +3,16 @@ services:
     build: .
     labels:
       - traefik.enable=true
-      - traefik.docker.network=reverse-proxy
-      - traefik.http.routers.writer.rule=Host(`writer.stefanosamanuel.me`)
-      - traefik.http.routers.writer.entrypoints=websecure
-      - traefik.http.routers.writer.tls.certresolver=letsencrypt
+      - traefik.docker.network=${TRAEFIK_NETWORK:-reverse-proxy}
+      - traefik.http.routers.writer.rule=Host(`${WRITER_HOST:-writer.localhost}`)
+      - traefik.http.routers.writer.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.writer.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
       - traefik.http.services.writer.loadbalancer.server.port=80
     networks:
-      - reverse-proxy
+      - proxy
     restart: unless-stopped
 
 networks:
-  reverse-proxy:
+  proxy:
+    name: ${TRAEFIK_NETWORK:-reverse-proxy}
     external: true
